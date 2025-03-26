@@ -1,88 +1,131 @@
-# azure_blob
-BLOB_AZURE
+Steps to Implement the Project
 
-Let’s go step by step to create the Automated Blob Storage Monitoring & Alerting project in Azure. This project will:
+1️⃣ Prerequisites
+	•	Azure Subscription (Free Tier works)
+	•	Terraform Installed (Download Here)
+	•	Azure CLI Installed (Download Here)
+	•	VS Code or any code editor
+ 2️⃣ Authenticate Terraform with Azure
 
-✅ Monitor Azure Blob Storage for new file uploads
-✅ Check if a tag (e.g., “code=mvgr”) exists in the metadata
-✅ Send an email alert if the tag is missing (using Azure Logic Apps)
+Run the following command to log in to your Azure account:
+az login
 
-Step 1: Set Up Azure Blob Storage
+Get your subscription ID:
+az account show --query id --output tsv
 
-1️⃣ Go to Azure Portal
-2️⃣ Search for Storage Accounts → Click Create
-3️⃣ Enter the required details:
-	•	Subscription: (Select your free-tier subscription)
-	•	Resource Group: Create a new one, e.g., blob-alert-rg
-	•	Storage Account Name: myblobmonitor
-	•	Region: Select any nearby region
-	•	Performance: Standard
-	•	Replication: Locally Redundant Storage (LRS)
-4️⃣ Click Review + Create → Then Create
+3️⃣ Create Terraform Configuration Files
 
-Step 2: Enable Event Grid to Detect New Blob Uploads
+🔹 Create a new folder and initialize Terraform:
+mkdir terraform-vm-automation
+cd terraform-vm-automation
 
-1️⃣ Open your Storage Account (myblobmonitor)
-2️⃣ Go to Events → Click + Event Subscription
-3️⃣ Name: blob-upload-event
-4️⃣ Event Type: Select Blob Created
-5️⃣ Destination: Choose Azure Function (we will create it next)
-6️⃣ Click Create
+terraform init
 
-Step 3: Create an Azure Function (Python) to Check Metadata
+🔹 Define the Terraform configuration file (main.tf)
 
-1️⃣ Create the Function App
+provider "azurerm" {
+  features {}
+}
 
-1️⃣ Search for Function Apps in Azure → Click Create
-2️⃣ Enter the details:
-	•	Subscription: (Same as Storage Account)
-	•	Resource Group: blob-alert-rg
-	•	Function App Name: blob-monitor-func
-	•	Runtime Stack: Python 3.9
-	•	Region: Same as Storage Account
-3️⃣ Click Review + Create → Then Create
+resource "azurerm_resource_group" "rg" {
+  name     = "terraform-vm-rg"
+  location = "East US"
+}
 
-2️⃣ Deploy the Python Code in Azure Function
+resource "azurerm_virtual_network" "vnet" {
+  name                = "terraform-vnet"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
 
-1️⃣ Go to your Function App → Click Functions
-2️⃣ Click + Create → Choose Event Grid Trigger
-3️⃣ Name it BlobCheckFunction
+resource "azurerm_subnet" "subnet" {
+  name                 = "terraform-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
 
-4️⃣ Click Code + Test → Copy & Paste this Python code:
+resource "azurerm_network_interface" "nic" {
+  name                = "terraform-nic"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
 
-Step 4: Create Azure Logic App for Email Notification
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Dynamic"
+  }
+}
 
-1️⃣ Go to Logic Apps → Click + Create
-2️⃣ Enter the details:
-	•	Resource Group: blob-alert-rg
-	•	Name: blob-alert-logicapp
-3️⃣ Click Review + Create → Then Create
+resource "azurerm_virtual_machine" "vm" {
+  name                  = "terraform-vm"
+  location              = azurerm_resource_group.rg.location
+  resource_group_name   = azurerm_resource_group.rg.name
+  network_interface_ids = [azurerm_network_interface.nic.id]
+  vm_size               = "Standard_B1s"
 
-1️⃣ Set Up the Workflow
+  storage_os_disk {
+    name              = "terraform-os-disk"
+    caching           = "ReadWrite"
+    create_option     = "FromImage"
+    managed_disk_type = "Standard_LRS"
+  }
 
-1️⃣ Open Logic App Designer
-2️⃣ Click Blank Logic App
-3️⃣ Search for HTTP Trigger → Choose “When an HTTP request is received”
-4️⃣ Click + New Step → Choose Outlook 365 / Gmail - Send Email
+  storage_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "18.04-LTS"
+    version   = "latest"
+  }
 
-2️⃣ Configure Email Settings
-	•	To: Your email
-	•	Subject: Alert: Missing Tag in Blob Storage
-	•	Body:
- A new blob {{blob_name}} was uploaded but is missing the required tag 'code=mvgr'.
- 5️⃣ Click Save
-6️⃣ Copy the Webhook URL → Paste it into the Python function (LOGIC_APP_WEBHOOK_URL variable)
+  os_profile {
+    computer_name  = "terraformvm"
+    admin_username = "azureuser"
+    admin_password = "Terraform@123"
+  }
 
-Step 5: Test the Setup
+  os_profile_linux_config {
+    disable_password_authentication = false
+  }
+}
 
-1️⃣ Upload a file to your Storage Account (myblobmonitor)
-2️⃣ If it has the tag “code=mvgr”, nothing happens
-3️⃣ If it does NOT have the tag, you receive an email alert 🚀
+4️⃣ Deploy the VM Using Terraform
+
+🔹 Initialize Terraform
+terraform init
+
+🔹 Validate Configuration
+terraform validate
+
+🔹 Preview Execution Plan
+terraform plan
+
+🔹 Apply Configuration to Deploy the VM
+terraform apply -auto-approve
+
+5️⃣ Verify the Deployment
+	•	Go to Azure Portal → Resource Groups → terraform-vm-rg → Virtual Machines
+	•	You should see the Ubuntu VM running
+ 6️⃣ Set Up Azure Monitor for VM Tracking
+	•	Navigate to the VM in Azure Portal
+	•	Go to Monitoring → Insights
+	•	Enable Azure Monitor for CPU, Memory, Disk, and Network performance tracking
+ 7️⃣ Destroy the VM (Optional)
+
+If you want to delete the setup, run:
+terraform destroy -auto-approve
 
 
-What This Project Teaches You?
 
-✅ Azure Blob Storage (File Uploads & Event Grid)
-✅ Azure Functions (Python) (Event-Driven Processing)
-✅ Azure Logic Apps (Automated Email Notifications)
-✅ Cloud Automation & Monitoring
+---------------------------------------------------------------------------------------------------------
+
+Project: Virtual Machine Automation with Terraform
+	•	Automated Azure VM provisioning using Terraform, eliminating manual setup efforts.
+	•	Configured Azure Monitor to track VM performance in real time.
+	•	Ensured efficient cloud infrastructure management using Infrastructure as Code (IaC) principles.
+
+This project demonstrates real-world cloud automation skills using Terraform & Azure, making it a strong addition to your resume.
+
+
+ 
