@@ -49,6 +49,49 @@ Step 3: Create an Azure Function (Python) to Check Metadata
 3️⃣ Name it BlobCheckFunction
 
 4️⃣ Click Code + Test → Copy & Paste this Python code:
+import logging
+import json
+import os
+import requests
+from azure.storage.blob import BlobServiceClient
+
+# Get Storage Account details
+STORAGE_ACCOUNT_NAME = "myblobmonitor"
+STORAGE_ACCOUNT_KEY = "YOUR_STORAGE_ACCOUNT_KEY"
+
+# Email Webhook (replace with your Logic App URL)
+LOGIC_APP_WEBHOOK_URL = "YOUR_LOGIC_APP_WEBHOOK_URL"
+
+def main(event: dict):
+    logging.info("Blob created event received.")
+
+    # Get blob details
+    blob_url = event['data']['url']
+    container_name, blob_name = blob_url.split("/")[-2], blob_url.split("/")[-1]
+
+    # Connect to Blob Storage
+    blob_service_client = BlobServiceClient(
+        f"https://{STORAGE_ACCOUNT_NAME}.blob.core.windows.net",
+        credential=STORAGE_ACCOUNT_KEY
+    )
+    blob_client = blob_service_client.get_blob_client(container_name, blob_name)
+
+    # Get blob properties
+    blob_props = blob_client.get_blob_properties()
+    metadata = blob_props.metadata
+
+    # Check for the "code" tag
+    if 'code' not in metadata or metadata['code'] != 'mvgr':
+        logging.warning(f"Blob {blob_name} is missing 'code=mvgr' tag.")
+        
+        # Send alert via Logic Apps
+        alert_payload = {
+            "blob_name": blob_name,
+            "message": f"Blob '{blob_name}' uploaded without the 'code=mvgr' tag."
+        }
+        requests.post(LOGIC_APP_WEBHOOK_URL, json=alert_payload)
+
+    logging.info("Function execution completed.")
 
 Step 4: Create Azure Logic App for Email Notification
 
